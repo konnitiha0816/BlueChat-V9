@@ -1,5 +1,5 @@
 {
-  "name": "bluechat-v7-final",
+  "name": "bluechat-v7-ultimate",
   "version": "7.0.0",
   "main": "server.js",
   "scripts": { "start": "node server.js" },
