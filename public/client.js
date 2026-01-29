@@ -1,23 +1,32 @@
 const socket = io();
 const peer = new Peer();
-let myStream, myNick, currentRoom, myPeerId;
+let myStream, screenStream, myNick, currentRoom, myPeerId;
 let isMicOn = true, isCamOn = true;
 
 const sndTitle = new Audio('/sounds/title.mp3'); sndTitle.loop = true;
 const sndWait = new Audio('/sounds/waiting.mp3'); sndWait.loop = true;
 const sndNotify = new Audio('/sounds/notify.mp3');
 
-function show(id) {
+// ユーティリティ
+const show = (id) => {
     document.querySelectorAll('body > div').forEach(d => d.classList.add('hidden'));
     document.getElementById(id).classList.remove('hidden');
-}
+};
 
-function initApp() { show('screen-title'); sndTitle.play(); updateBg(); }
-function updateBg() {
+const updateClock = () => {
+    const now = new Date();
+    document.getElementById('display-time').innerText = now.toLocaleTimeString();
+};
+
+function initApp() {
+    show('screen-title');
+    sndTitle.play();
+    setInterval(updateClock, 1000);
     const h = new Date().getHours();
     document.getElementById('body-bg').className = (h >= 5 && h < 17) ? 'day-bg' : 'night-bg';
 }
 
+// 認証
 let ans;
 function startCaptcha() {
     const a = Math.floor(Math.random()*9)+1, b = Math.floor(Math.random()*9)+1;
@@ -27,78 +36,79 @@ function startCaptcha() {
 }
 function checkCaptcha() {
     if(parseInt(document.getElementById('kuku-a').value) === ans) show('screen-choice');
-    else { alert("不正解！"); startCaptcha(); }
+    else { alert("認証エラー。もう一度計算してください！"); startCaptcha(); }
 }
 
-peer.on('open', id => { myPeerId = id; });
-
-function createRoom() {
-    myNick = document.getElementById('user-nick').value;
-    const id = prompt("6文字のID");
-    if(myNick && id && id.length === 6) {
-        currentRoom = id;
-        socket.emit('create-room', id);
-    }
+// 入室処理
+function handleCreate() {
+    myNick = document.getElementById('user-nick').value.trim();
+    if(!myNick) return alert("ニックネームを記入してください！");
+    const id = prompt("部屋ID(6文字)を入力");
+    if(id && id.length === 6) { currentRoom = id; socket.emit('create-room', id); }
 }
 
-function requestJoin() {
-    myNick = document.getElementById('user-nick').value;
-    const id = document.getElementById('join-id').value;
-    if(myNick && id && id.length === 6) {
-        currentRoom = id;
-        socket.emit('request-join', { roomId: id, nickname: myNick });
-    }
+function handleJoin() {
+    myNick = document.getElementById('user-nick').value.trim();
+    const id = document.getElementById('join-id').value.trim();
+    if(!myNick) return alert("ニックネームを記入してください！");
+    if(id.length !== 6) return alert("正しいIDを入力してください。");
+    currentRoom = id;
+    socket.emit('request-join', { roomId: id, nickname: myNick });
 }
 
-socket.on('room-created', () => prepareMedia());
-socket.on('play-wait-music', () => { sndTitle.pause(); sndWait.play(); show('screen-wait'); });
+// 通信イベント
+socket.on('room-created', id => startSession(id));
+socket.on('waiting-approval', () => { sndTitle.pause(); sndWait.play(); show('screen-wait'); });
+
 socket.on('admin-approval-request', data => {
     sndNotify.play();
-    if(confirm(`${data.nickname}さんを承認しますか？`)) socket.emit('approve-user', data.senderId);
+    if(confirm(`${data.nickname}さんから参加リクエストがあります。承認しますか？`)) {
+        socket.emit('approve-user', data.senderId);
+    }
 });
-socket.on('join-approved', () => { sndWait.pause(); prepareMedia(); });
 
-async function prepareMedia() {
-    show('screen-setup');
-    myStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    document.getElementById('setup-video').srcObject = myStream;
-}
+socket.on('join-approved', () => { sndWait.pause(); startSession(currentRoom); });
 
-function enterCall() {
-    show('screen-call');
-    addVideo(myStream, myNick, true);
-    
-    // 自分の参加を他全員に知らせる
-    socket.emit('join-call', { roomId: currentRoom, peerId: myPeerId, nickname: myNick });
-
-    // 着信処理
-    peer.on('call', call => {
-        call.answer(myStream);
-        call.on('stream', userStream => {
-            // 相手のニックネームはSocket経由で受け取る（今回は簡易的にメタデータとして扱う工夫が必要ですが、通常は受信後に名前を紐付けます）
-            addVideo(userStream, "参加者"); 
+// セッション開始（HD画質設定）
+async function startSession(roomId) {
+    try {
+        myStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+            audio: true
         });
-    });
+        show('screen-call');
+        document.getElementById('display-room-id').innerText = "ID: " + roomId;
+        addVideo(myStream, myNick, true);
+        socket.emit('join-call', { roomId: roomId, peerId: peer.id, nickname: myNick });
+    } catch (e) { alert("カメラへのアクセスを許可してください。"); }
 }
 
-// 他のユーザーが接続したとき
+peer.on('open', id => myPeerId = id);
+peer.on('call', call => {
+    call.answer(myStream);
+    call.on('stream', s => addVideo(s, "参加者"));
+});
+
 socket.on('user-connected', data => {
     const call = peer.call(data.peerId, myStream);
-    call.on('stream', userStream => {
-        addVideo(userStream, data.nickname);
-    });
+    call.on('stream', s => addVideo(s, data.nickname));
 });
 
-function addVideo(stream, nickname, isMe = false) {
+// ビデオ表示（ミラーモード/画面共有自動切替）
+function addVideo(stream, nickname, isMe = false, isScreen = false) {
+    if (document.getElementById('vid-' + stream.id)) return;
+
     const container = document.createElement('div');
     container.className = 'video-container';
     container.id = 'cont-' + stream.id;
 
     const v = document.createElement('video');
+    v.id = 'vid-' + stream.id;
     v.srcObject = stream;
     v.autoplay = true;
     v.playsinline = true;
     if(isMe) v.muted = true;
+    if(isScreen) v.classList.add('screen-share');
 
     const label = document.createElement('div');
     label.className = 'nickname-label';
@@ -108,17 +118,24 @@ function addVideo(stream, nickname, isMe = false) {
     container.appendChild(label);
     document.getElementById('video-grid').appendChild(container);
 
-    // 画面共有などの終了検知
+    // 画面共有が止まったら要素を消す
     stream.getVideoTracks()[0].onended = () => {
         container.remove();
+        if(isScreen) screenStream = null;
     };
 }
 
-// 画面共有
-async function shareScreen() {
-    const s = await navigator.mediaDevices.getDisplayMedia({ video: true });
-    addVideo(s, "画面共有", false);
-    Object.values(peer.connections).forEach(c => peer.call(c[0].peer, s));
+// 画面共有機能
+async function toggleScreenShare() {
+    if(screenStream) {
+        screenStream.getTracks().forEach(t => t.stop());
+        return;
+    }
+    try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        addVideo(screenStream, "画面共有", false, true);
+        Object.values(peer.connections).forEach(c => peer.call(c[0].peer, screenStream));
+    } catch (err) { console.log("Sharing cancelled"); }
 }
 
 // ツール・チャット
@@ -142,7 +159,10 @@ function sendChat() {
     }
 }
 socket.on('receive-chat', data => {
-    const p = document.createElement('div');
-    p.innerHTML = `<b>${data.sender}:</b> ${data.text}`;
-    document.getElementById('chat-logs').appendChild(p);
+    const logs = document.getElementById('chat-logs');
+    const div = document.createElement('div');
+    div.style.marginBottom = "10px";
+    div.innerHTML = `<b style="color:#0078d4">${data.sender}:</b> ${data.text}`;
+    logs.appendChild(div);
+    logs.scrollTop = logs.scrollHeight;
 });
