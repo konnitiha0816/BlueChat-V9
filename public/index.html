@@ -2,33 +2,66 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Blue Chat V7</title>
+    <title>Blue Chat V7 Final</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         body { margin: 0; font-family: sans-serif; overflow: hidden; color: white; transition: 2s; background: #000; }
-        .day-bg { background: linear-gradient(rgba(0,0,0,0.2),rgba(0,0,0,0.2)), url('https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=1920&q=80'); background-size: cover; }
-        .night-bg { background: linear-gradient(rgba(0,0,0,0.5),rgba(0,0,0,0.5)), url('https://images.unsplash.com/photo-1516339901600-2e1a62dc0c45?auto=format&fit=crop&w=1920&q=80'); background-size: cover; }
+        .day-bg { background: linear-gradient(rgba(0,0,0,0.3),rgba(0,0,0,0.3)), url('https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=1920&q=80'); background-size: cover; }
+        .night-bg { background: linear-gradient(rgba(0,0,0,0.6),rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1516339901600-2e1a62dc0c45?auto=format&fit=crop&w=1920&q=80'); background-size: cover; }
+        
         .hidden { display: none !important; }
         .full { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-        .glass { background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); padding: 30px; border-radius: 20px; width: 350px; }
+        .glass { background: rgba(0,0,0,0.85); backdrop-filter: blur(15px); padding: 40px; border-radius: 30px; width: 380px; }
+        
+        /* グリッドビュー設定 */
+        #video-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
+            grid-auto-rows: 1fr;
+            width: 100%; height: calc(100vh - 100px); 
+            padding: 20px; gap: 15px; box-sizing: border-box; 
+            background: #202124; 
+        }
+
+        /* ビデオコンテナ（名前を重ねるため） */
+        .video-container { position: relative; width: 100%; height: 100%; background: #3c4043; border-radius: 12px; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        .nickname-label { 
+            position: absolute; top: 10px; right: 10px; 
+            background: rgba(0,0,0,0.4); padding: 4px 10px; border-radius: 4px;
+            font-size: 13px; color: rgba(255,255,255,0.8); pointer-events: none;
+            font-weight: 300;
+        }
+
         .btn-main { width: 100%; padding: 15px; margin: 10px 0; border-radius: 50px; border: none; font-weight: bold; cursor: pointer; }
         .btn-blue { background: #0078d4; color: white; }
         .btn-green { background: #0f9d58; color: white; }
-        #video-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); width: 100%; height: 100%; padding: 10px; box-sizing: border-box; background: #202124; }
-        video { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
-        .sidebar { position: fixed; right: -350px; top: 0; width: 320px; height: 100%; background: white; color: black; transition: 0.3s; z-index: 200; padding: 20px; box-sizing: border-box; }
+        
+        .toolbar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 15px; background: rgba(32,33,36,0.9); padding: 15px 25px; border-radius: 100px; }
+        .icon-btn { width: 45px; height: 45px; border-radius: 50%; border: none; background: #3c4043; color: white; cursor: pointer; }
+        .icon-btn.off { background: #ea4335; }
+
+        .sidebar { position: fixed; right: -400px; top: 0; width: 350px; height: 100%; background: white; color: black; transition: 0.4s; z-index: 200; display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; }
         .sidebar.open { right: 0; }
     </style>
 </head>
 <body id="body-bg">
     <div id="screen-init" class="full"> <button class="btn-main btn-blue" style="width:200px;" onclick="initApp()">Blue Chat 起動</button> </div>
-    <div id="screen-title" class="full hidden"> <h1 style="font-size:60px;">Blue Chat</h1> <button class="btn-main" style="width:200px;" onclick="startCaptcha()">スタート</button> </div>
-    <div id="screen-captcha" class="full hidden"> <div class="glass"> <h2>🤖 認証</h2> <div id="kuku-q" style="font-size:30px; margin:20px;"></div> <input type="number" id="kuku-a" placeholder="答え"> <button class="btn-main btn-blue" onclick="checkCaptcha()">認証</button> </div> </div>
+    <div id="screen-title" class="full hidden"> <h1>Blue Chat</h1> <button class="btn-main" style="width:200px;" onclick="startCaptcha()">スタート</button> </div>
     
+    <div id="screen-captcha" class="full hidden">
+        <div class="glass">
+            <h2>🤖 認証</h2>
+            <div id="kuku-q" style="font-size:30px; margin:20px;"></div>
+            <input type="number" id="kuku-a" style="width:80%; padding:10px;" placeholder="答え">
+            <button class="btn-main btn-blue" onclick="checkCaptcha()">認証</button>
+        </div>
+    </div>
+
     <div id="screen-choice" class="full hidden">
         <div class="glass">
-            <h2>モード選択</h2>
+            <h2>どちらを使いますか？</h2>
             <button class="btn-main btn-blue" onclick="show('screen-lobby')">通話</button>
             <button class="btn-main btn-green" onclick="window.location.href='https://blue-chat-message-edition-mresn8mmey.edgeone.dev/'">メッセージ</button>
         </div>
@@ -36,29 +69,34 @@
 
     <div id="screen-lobby" class="full hidden">
         <div class="glass">
-            <input type="text" id="user-nick" placeholder="ニックネームを入力">
-            <hr>
-            <input type="text" id="join-id" placeholder="ID (6文字)">
+            <input type="text" id="user-nick" placeholder="ニックネームを入力" style="width:90%; padding:10px; margin-bottom:10px;">
+            <input type="text" id="join-id" placeholder="ID (6文字)" style="width:90%; padding:10px;">
             <button class="btn-main btn-blue" onclick="requestJoin()">参加リクエスト</button>
             <button class="btn-main btn-green" onclick="createRoom()">新規作成</button>
         </div>
     </div>
 
-    <div id="screen-wait" class="full hidden"> <div class="glass"> <h2>承認待ち...</h2> </div> </div>
-    <div id="screen-setup" class="full hidden"> <video id="setup-video" autoplay muted style="width:300px; border-radius:10px;"></video> <button class="btn-main btn-green" style="width:200px;" onclick="enterCall()">通話を開始</button> </div>
+    <div id="screen-wait" class="full hidden"> <div class="glass"> <h2>承認待ち... ♪</h2> </div> </div>
+    <div id="screen-setup" class="full hidden"> 
+        <video id="setup-video" autoplay muted style="width:320px; border-radius:10px; margin-bottom:20px;"></video>
+        <button class="btn-main btn-green" style="width:200px;" onclick="enterCall()">準備完了</button> 
+    </div>
 
-    <div id="screen-call" class="hidden" style="height:100vh;">
+    <div id="screen-call" class="hidden">
         <div id="video-grid"></div>
-        <div style="position:absolute; bottom:20px; left:50%; transform:translateX(-50%); display:flex; gap:10px;">
-            <button class="btn-main btn-blue" style="width:60px;" onclick="toggleSide('chat')">💬</button>
-            <button class="btn-main" style="width:60px; background:red; color:white;" onclick="location.reload()">📞</button>
+        <div class="toolbar">
+            <button id="btn-mic" class="icon-btn" onclick="toggleMic()">🎤</button>
+            <button id="btn-cam" class="icon-btn" onclick="toggleCam()">📷</button>
+            <button class="icon-btn" onclick="shareScreen()">📤</button>
+            <button class="icon-btn" onclick="toggleSide('chat')">💬</button>
+            <button class="icon-btn" style="background:#ea4335;" onclick="location.reload()">📞</button>
         </div>
         <div id="side-chat" class="sidebar">
             <h3>チャット</h3>
-            <div id="chat-logs" style="height:70vh; overflow-y:auto; border:1px solid #ddd; margin-bottom:10px; padding:5px;"></div>
+            <div id="chat-logs" style="flex:1; overflow-y:auto; padding:10px; background:#f0f0f0; border-radius:5px; margin-bottom:10px;"></div>
             <div style="display:flex; gap:5px;">
-                <input type="text" id="chat-in" style="flex:1; padding:10px;" placeholder="メッセージ...">
-                <button class="btn-blue" style="padding:10px;" onclick="sendChat()">送信</button>
+                <input type="text" id="chat-in" style="flex:1; padding:10px;">
+                <button class="btn-blue" style="width:60px; border:none;" onclick="sendChat()">送信</button>
             </div>
         </div>
     </div>
